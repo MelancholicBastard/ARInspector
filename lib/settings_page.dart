@@ -193,7 +193,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Подключение ещё не выполняется. Адрес сохраняется для следующего этапа интеграции.',
+                  'В режиме «Осмотр с моделью» кадры отправляются на этот сервер: POST /detect. На Android HTTP разрешён для localhost и 10.0.2.2, для других хостов используйте HTTPS.',
                 ),
               ]),
               const SizedBox(height: 24),

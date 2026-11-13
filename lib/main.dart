@@ -6,6 +6,9 @@ import 'app_theme.dart';
 import 'qr_scanner_page.dart';
 import 'settings_page.dart';
 import 'objects_page.dart';
+import 'detection.dart';
+import 'inspection_page.dart';
+import 'settings_store.dart';
 
 void main() => runApp(const MyApp());
 
@@ -34,6 +37,7 @@ class _InspectorShellState extends State<InspectorShell> {
   int _tab = 0;
   bool _settingsVisited = false;
   String? _qrValue;
+  DetectionSnapshot? _inspection;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -47,9 +51,14 @@ class _InspectorShellState extends State<InspectorShell> {
         index: _tab,
         children: [
           InspectorHome(
-            onDetected: (value) => setState(() => _qrValue = value),
+            onDetected: (value) => setState(() {
+              _qrValue = value;
+              _inspection = null;
+            }),
+            onInspectionChanged: (value) => setState(() => _inspection = value),
+            onShowObjects: () => setState(() => _tab = 1),
           ),
-          ObjectsPage(qrValue: _qrValue),
+          ObjectsPage(qrValue: _qrValue, inspection: _inspection),
           if (_settingsVisited)
             const SettingsPage()
           else
@@ -82,8 +91,15 @@ class _InspectorShellState extends State<InspectorShell> {
 }
 
 class InspectorHome extends StatefulWidget {
-  const InspectorHome({super.key, this.onDetected});
+  const InspectorHome({
+    super.key,
+    this.onDetected,
+    this.onInspectionChanged,
+    this.onShowObjects,
+  });
   final ValueChanged<String>? onDetected;
+  final ValueChanged<DetectionSnapshot?>? onInspectionChanged;
+  final VoidCallback? onShowObjects;
 
   @override
   State<InspectorHome> createState() => _InspectorHomeState();
@@ -110,6 +126,61 @@ class _InspectorHomeState extends State<InspectorHome> {
       if (value != null) _result = value;
     });
     if (value != null) widget.onDetected?.call(value);
+  }
+
+  Future<void> _inspect() async {
+    if (_openingScanner) return;
+    setState(() => _openingScanner = true);
+    try {
+      final settings = await const SecureSettingsStore().load();
+      if (!mounted) return;
+      if (settings.serverUrl.isEmpty ||
+          validateServerUrl(settings.serverUrl) != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Сначала сохраните адрес сервера на вкладке «Настройки»',
+            ),
+          ),
+        );
+        return;
+      }
+      final server = Uri.parse(settings.serverUrl);
+      if (!kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.android &&
+          server.scheme == 'http' &&
+          !['localhost', '10.0.2.2'].contains(server.host)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Для этого адреса нужен HTTPS или отдельное HTTP-исключение для хоста сервера.',
+            ),
+          ),
+        );
+        return;
+      }
+      final showObjects = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => InspectionPage(
+            serverUrl: settings.serverUrl,
+            onChanged: (value) => widget.onInspectionChanged?.call(value),
+          ),
+        ),
+      );
+      if (mounted && showObjects == true) widget.onShowObjects?.call();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Не удалось открыть осмотр. Проверьте настройки сервера.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _openingScanner = false);
+    }
   }
 
   @override
@@ -208,6 +279,18 @@ class _InspectorHomeState extends State<InspectorHome> {
                     _result == null ? 'Сканировать QR-код' : 'Сканировать ещё',
                   ),
                 ),
+                const SizedBox(height: 12),
+                FilledButton.tonalIcon(
+                  onPressed:
+                      !_openingScanner &&
+                          (kIsWeb ||
+                              defaultTargetPlatform == TargetPlatform.android ||
+                              defaultTargetPlatform == TargetPlatform.iOS)
+                      ? _inspect
+                      : null,
+                  icon: const Icon(Icons.view_in_ar_rounded),
+                  label: const Text('Осмотр с моделью'),
+                ),
                 if (!_supported) ...[
                   const SizedBox(height: 12),
                   const Text(
@@ -230,7 +313,7 @@ class _InspectorHomeState extends State<InspectorHome> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Первый этап — идентификация. Цифровые карточки оборудования и AR-анализ появятся на следующих этапах.',
+                        'Считайте QR-код для идентификации или откройте осмотр с моделью. Для анализа укажите адрес сервера в настройках.',
                         style: text.bodySmall?.copyWith(
                           color: colors.onSurfaceVariant,
                           height: 1.5,
